@@ -109,27 +109,33 @@ def project_detail(request, project_id):
 
     return Response(data)
 
-@api_view(['GET', 'POST']) # Change this to allow both
+@api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
 def project_list_create(request):
     if request.method == 'GET':
-        # Get projects where the user is a member
-        memberships = ProjectMembership.objects.filter(user=request.user)
-        projects = [m.project for m in memberships]
-        
-        data = [{
-            "id": p.id,
-            "name": p.name,
-            "description": p.description,
-            "created_by": p.created_by.username,
-            "total_tasks": Task.objects.filter(project=p).count()
-        } for p in projects]
-        
-        return Response(data)
+        try:
+            # Use select_related to get the user data in one query and prevent crashes
+            memberships = ProjectMembership.objects.filter(user=request.user).select_related('project', 'project__created_by')
+            
+            data = []
+            for m in memberships:
+                p = m.project
+                data.append({
+                    "id": p.id,
+                    "name": p.name,
+                    "description": p.description,
+                    # SAFE ACCESS: handles cases where created_by might be missing
+                    "created_by": p.created_by.username if p.created_by else "System",
+                    "total_tasks": Task.objects.filter(project=p).count()
+                })
+            return Response(data)
+        except Exception as e:
+            # This will send the actual error message to your browser console instead of a generic 500
+            return Response({"error": str(e)}, status=500)
 
     if request.method == 'POST':
         if not request.user.is_staff:
-            return Response({"error": "Only admin can create project"}, status=403)
+            return Response({"error": "Only staff/admins can create projects"}, status=403)
 
         project = Project.objects.create(
             name=request.data.get('name'),
@@ -145,6 +151,7 @@ def project_list_create(request):
 
         members = request.data.get('members', [])
         for user_id in members:
+            # use get_or_create to prevent duplicate errors
             ProjectMembership.objects.get_or_create(
                 user_id=user_id,
                 project=project,
