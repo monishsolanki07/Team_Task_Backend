@@ -12,7 +12,7 @@
 
 *A full-stack collaborative project management app with JWT auth, role-based access, and real-time task updates.*
 
-[Live Demo](https://team-task-backend-hjpt.onrender.com) · [Backend Repo](#) · [Frontend Repo](https://github.com/monishsolanki07/Team_Task_Frontend)
+[Live Demo](https://team-task-frontend-alpha.vercel.app/login) · [Backend Repo](#) · [Frontend Repo](https://github.com/monishsolanki07/Team_Task_Frontend)
 
 </div>
 
