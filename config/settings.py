@@ -32,6 +32,7 @@ from corsheaders.defaults import default_headers
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
+    "https://team-task-frontend-alpha.vercel.app",
 ]
 
 CORS_ALLOW_HEADERS = list(default_headers) + [
