@@ -3,6 +3,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from .models import Project, ProjectMembership
+from apps.tasks.models import Task
 
 
 @api_view(['POST'])
@@ -107,3 +108,47 @@ def project_detail(request, project_id):
     }
 
     return Response(data)
+
+@api_view(['GET', 'POST']) # Change this to allow both
+@permission_classes([IsAuthenticated])
+def project_list_create(request):
+    if request.method == 'GET':
+        # Get projects where the user is a member
+        memberships = ProjectMembership.objects.filter(user=request.user)
+        projects = [m.project for m in memberships]
+        
+        data = [{
+            "id": p.id,
+            "name": p.name,
+            "description": p.description,
+            "created_by": p.created_by.username,
+            "total_tasks": Task.objects.filter(project=p).count()
+        } for p in projects]
+        
+        return Response(data)
+
+    if request.method == 'POST':
+        if not request.user.is_staff:
+            return Response({"error": "Only admin can create project"}, status=403)
+
+        project = Project.objects.create(
+            name=request.data.get('name'),
+            description=request.data.get('description', ''),
+            created_by=request.user
+        )
+
+        ProjectMembership.objects.create(
+            user=request.user,
+            project=project,
+            role='ADMIN'
+        )
+
+        members = request.data.get('members', [])
+        for user_id in members:
+            ProjectMembership.objects.get_or_create(
+                user_id=user_id,
+                project=project,
+                defaults={'role': 'MEMBER'}
+            )
+
+        return Response({"msg": "project created", "id": project.id})
