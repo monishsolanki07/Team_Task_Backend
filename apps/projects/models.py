@@ -5,6 +5,7 @@ User = settings.AUTH_USER_MODEL
 
 class Project(models.Model):
     name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
     created_by = models.ForeignKey(User, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
 

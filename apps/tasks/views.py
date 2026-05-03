@@ -4,17 +4,18 @@ from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from collections import defaultdict
-from .models import TaskActivity
-from .models import Task
+
+from .models import Task, TaskActivity
 from apps.projects.models import ProjectMembership, Project
 
 
+# 🚀 CREATE TASK (ADMIN ONLY)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_task(request):
     project = get_object_or_404(Project, id=request.data.get('project_id'))
 
-    # 🔐 Only project admin can create task
+    # 🔐 Only project admin can create
     if not ProjectMembership.objects.filter(
         user=request.user, project=project, role='ADMIN'
     ).exists():
@@ -35,19 +36,24 @@ def create_task(request):
         assigned_to_id=assigned_to,
         project=project
     )
+
+    # 📜 Activity log
     TaskActivity.objects.create(
         task=task,
         user=request.user,
         action="Task created"
-   )
+    )
 
     return Response({"msg": "task created", "id": task.id})
 
 
+# 🚀 GET ALL TASKS (PROJECT-WIDE VISIBILITY)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def my_tasks(request):
-    tasks = Task.objects.filter(assigned_to=request.user).select_related('project')
+    tasks = Task.objects.filter(
+        project__projectmembership__user=request.user
+    ).select_related('project', 'assigned_to')
 
     data = [
         {
@@ -55,7 +61,8 @@ def my_tasks(request):
             "title": t.title,
             "status": t.status,
             "due_date": t.due_date,
-            "project": t.project.name
+            "project": t.project.name,
+            "assigned_to": t.assigned_to.username if t.assigned_to else None
         }
         for t in tasks
     ]
@@ -63,6 +70,7 @@ def my_tasks(request):
     return Response(data)
 
 
+# 🚀 UPDATE TASK (ONLY ASSIGNED USER)
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
 def update_task(request, id):
@@ -80,6 +88,8 @@ def update_task(request, id):
 
     task.status = new_status
     task.save()
+
+    # 📜 Activity log
     TaskActivity.objects.create(
         task=task,
         user=request.user,
@@ -89,10 +99,13 @@ def update_task(request, id):
     return Response({"msg": "updated"})
 
 
+# 🚀 DASHBOARD (PROJECT-WIDE)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def dashboard(request):
-    tasks = Task.objects.filter(assigned_to=request.user)
+    tasks = Task.objects.filter(
+        project__projectmembership__user=request.user
+    )
 
     return Response({
         "total": tasks.count(),
@@ -102,11 +115,13 @@ def dashboard(request):
     })
 
 
-# 📅 BONUS: Calendar API
+# 🚀 CALENDAR (PROJECT-WIDE)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def calendar_view(request):
-    tasks = Task.objects.filter(assigned_to=request.user)
+    tasks = Task.objects.filter(
+        project__projectmembership__user=request.user
+    )
 
     grouped = defaultdict(list)
 
@@ -120,10 +135,21 @@ def calendar_view(request):
 
     return Response(grouped)
 
+
+# 🚀 TASK ACTIVITY (SECURED)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def task_activity(request, task_id):
-    activities = TaskActivity.objects.filter(task_id=task_id).order_by('-timestamp')
+    task = get_object_or_404(Task, id=task_id)
+
+    # 🔐 Only project members can view
+    if not ProjectMembership.objects.filter(
+        user=request.user,
+        project=task.project
+    ).exists():
+        return Response({"error": "Not allowed"}, status=403)
+
+    activities = TaskActivity.objects.filter(task=task).order_by('-timestamp')
 
     data = [
         {
@@ -132,6 +158,24 @@ def task_activity(request, task_id):
             "time": a.timestamp
         }
         for a in activities
+    ]
+
+    return Response(data)
+
+
+# 🚀 OPTIONAL: ONLY MY ASSIGNED TASKS
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def my_assigned_tasks(request):
+    tasks = Task.objects.filter(assigned_to=request.user)
+
+    data = [
+        {
+            "id": t.id,
+            "title": t.title,
+            "status": t.status
+        }
+        for t in tasks
     ]
 
     return Response(data)
