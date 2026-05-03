@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from .models import Project, ProjectMembership
 from apps.tasks.models import Task
+from django.apps import apps
 
 
 @api_view(['POST'])
@@ -112,9 +113,11 @@ def project_detail(request, project_id):
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
 def project_list_create(request):
+    # Get the Task model dynamically to avoid circular import crashes
+    TaskModel = apps.get_model('tasks', 'Task') 
+
     if request.method == 'GET':
         try:
-            # Use select_related to get the user data in one query and prevent crashes
             memberships = ProjectMembership.objects.filter(user=request.user).select_related('project', 'project__created_by')
             
             data = []
@@ -124,38 +127,46 @@ def project_list_create(request):
                     "id": p.id,
                     "name": p.name,
                     "description": p.description,
-                    # SAFE ACCESS: handles cases where created_by might be missing
+                    # Safe check for created_by
                     "created_by": p.created_by.username if p.created_by else "System",
-                    "total_tasks": Task.objects.filter(project=p).count()
+                    "total_tasks": TaskModel.objects.filter(project=p).count()
                 })
             return Response(data)
         except Exception as e:
-            # This will send the actual error message to your browser console instead of a generic 500
             return Response({"error": str(e)}, status=500)
 
     if request.method == 'POST':
         if not request.user.is_staff:
-            return Response({"error": "Only staff/admins can create projects"}, status=403)
+            return Response({"error": "Only admins can create projects"}, status=403)
+
+        # Validate required fields to prevent IntegrityError
+        name = request.data.get('name')
+        if not name:
+            return Response({"error": "Project name is required"}, status=400)
 
         project = Project.objects.create(
-            name=request.data.get('name'),
+            name=name,
             description=request.data.get('description', ''),
             created_by=request.user
         )
 
-        ProjectMembership.objects.create(
+        # Ensure creator is added as ADMIN
+        ProjectMembership.objects.get_or_create(
             user=request.user,
             project=project,
-            role='ADMIN'
+            defaults={'role': 'ADMIN'}
         )
 
+        # Add other members safely
         members = request.data.get('members', [])
         for user_id in members:
-            # use get_or_create to prevent duplicate errors
-            ProjectMembership.objects.get_or_create(
-                user_id=user_id,
-                project=project,
-                defaults={'role': 'MEMBER'}
-            )
+            try:
+                ProjectMembership.objects.get_or_create(
+                    user_id=user_id,
+                    project=project,
+                    defaults={'role': 'MEMBER'}
+                )
+            except Exception:
+                continue # Skip invalid user IDs to prevent 500 crash
 
         return Response({"msg": "project created", "id": project.id})
